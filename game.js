@@ -1,9 +1,7 @@
 // ==================== GAME CONSTANTS ====================
-const GRAVITY = 0.15;
+const GRAVITY = 0.3; // pixels per second squared
 const SPAWN_INTERVAL = 1500; // 1.5 - 2 giây
 const FRUIT_SPAWN_CHANCE = 0.85; // 85% hoa quả, 15% bom
-const TARGET_FPS = 60;
-const FRAME_TIME = 1000 / TARGET_FPS; // ~16.67ms
 const FRUIT_COLORS = ['#ff6b35', '#ff1744', '#00e676', '#ffd600']; // orange, red, green, yellow
 const FRUIT_POINTS = 10;
 
@@ -30,24 +28,23 @@ class GameObject {
         this.x = x;
         this.y = y;
         this.radius = radius;
-        this.velocityX = velocityX;
-        this.velocityY = velocityY;
+        this.velocityX = velocityX; // pixels per second
+        this.velocityY = velocityY; // pixels per second
         this.color = color;
         this.type = type; // 'fruit' or 'bomb'
-        this.wasMissed = false; // Theo dõi nếu đã miss
+        this.wasMissed = false;
     }
 
-    update() {
-        // Áp dụng gravity
-        this.velocityY += GRAVITY;
+    update(deltaTime) {
+        // Áp dụng gravity (deltaTime tính bằng giây)
+        this.velocityY += GRAVITY * deltaTime;
         
-        // Cập nhật vị trí
-        this.x += this.velocityX;
-        this.y += this.velocityY;
+        // Cập nhật vị trí dựa trên deltaTime
+        this.x += this.velocityX * deltaTime;
+        this.y += this.velocityY * deltaTime;
     }
 
     draw(ctx) {
-        ctx.save();
         ctx.fillStyle = this.color;
         ctx.beginPath();
         ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
@@ -59,8 +56,6 @@ class GameObject {
             ctx.lineWidth = 3;
             ctx.stroke();
         }
-
-        ctx.restore();
     }
 
     isOutOfBounds(canvasHeight) {
@@ -76,38 +71,37 @@ class Particle {
         this.color = color;
         this.radius = 3 + Math.random() * 4;
         
-        // Vận tốc ngẫu nhiên theo mọi hướng
+        // Vận tốc ngẫu nhiên theo mọi hướng (pixels per second)
         const angle = Math.random() * Math.PI * 2;
-        const speed = 4 + Math.random() * 6;
+        const speed = 200 + Math.random() * 300; // pixels per second
         this.velocityX = Math.cos(angle) * speed;
         this.velocityY = Math.sin(angle) * speed;
         
         this.alpha = 1;
-        this.lifetime = 600; // milliseconds
+        this.lifetime = 0.6; // seconds
         this.createdAt = Date.now();
     }
 
-    update() {
+    update(deltaTime) {
         // Áp dụng gravity
-        this.velocityY += GRAVITY * 0.5;
+        this.velocityY += GRAVITY * 0.5 * deltaTime;
         
         // Cập nhật vị trí
-        this.x += this.velocityX;
-        this.y += this.velocityY;
+        this.x += this.velocityX * deltaTime;
+        this.y += this.velocityY * deltaTime;
         
         // Mờ dần theo thời gian
-        const age = Date.now() - this.createdAt;
+        const age = (Date.now() - this.createdAt) / 1000; // convert to seconds
         this.alpha = Math.max(0, 1 - (age / this.lifetime));
     }
 
     draw(ctx) {
-        ctx.save();
         ctx.globalAlpha = this.alpha;
         ctx.fillStyle = this.color;
         ctx.beginPath();
         ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
         ctx.fill();
-        ctx.restore();
+        ctx.globalAlpha = 1; // Reset alpha
     }
 
     isDead() {
@@ -141,22 +135,20 @@ function resetGame() {
     gameState.gameObjects = [];
     gameState.particles = [];
     gameState.lastSpawnTime = Date.now();
+    gameState.lastFrameTime = Date.now();
 }
 
 // ==================== EVENT LISTENERS ====================
 function setupEventListeners() {
-    // Mouse events
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mousedown', handleMouseDown);
     window.addEventListener('mouseup', handleMouseUp);
     window.addEventListener('click', handleClick);
     
-    // Touch events (for mobile)
     window.addEventListener('touchstart', handleTouchStart);
     window.addEventListener('touchmove', handleTouchMove);
     window.addEventListener('touchend', handleTouchEnd);
     
-    // Resize handler
     window.addEventListener('resize', resizeCanvas);
 }
 
@@ -178,13 +170,11 @@ function handleMouseUp(e) {
 }
 
 function handleClick(e) {
-    // Nếu game over, click để restart
     if (gameState.isGameOver) {
         resetGame();
     }
 }
 
-// Touch handlers
 function handleTouchStart(e) {
     if (gameState.isGameOver) return;
     if (e.touches.length > 0) {
@@ -228,7 +218,6 @@ function spawnObjects() {
 
     gameState.lastSpawnTime = now;
 
-    // Sinh ra 1 đến 3 vật thể
     const count = 1 + Math.floor(Math.random() * 3);
 
     for (let i = 0; i < count; i++) {
@@ -238,19 +227,17 @@ function spawnObjects() {
         const y = gameState.canvas.height;
         const radius = 15 + Math.random() * 10;
         
-        // Vận tốc ban đầu
-        const velocityX = (Math.random() - 0.5) * 8; // -4 đến 4
-        const velocityY = -(10 + Math.random() * 4); // -10 đến -14
+        // Vận tốc ban đầu (pixels per second)
+        const velocityX = (Math.random() - 0.5) * 400; // -200 to 200
+        const velocityY = -(500 + Math.random() * 300); // -500 to -800
         
         let color;
         let type;
 
         if (isFruit) {
-            // Màu hoa quả ngẫu nhiên
             color = FRUIT_COLORS[Math.floor(Math.random() * FRUIT_COLORS.length)];
             type = 'fruit';
         } else {
-            // Bom
             color = '#111111';
             type = 'bomb';
         }
@@ -261,13 +248,12 @@ function spawnObjects() {
     }
 }
 
-// ==================== COLLISION DETECTION (LINE-CIRCLE INTERSECTION) ====================
+// ==================== COLLISION DETECTION ====================
 function getBladeSegment() {
     if (gameState.bladeTrail.length < 2) {
         return null;
     }
 
-    // Lấy 2 điểm mới nhất
     const p1 = gameState.bladeTrail[gameState.bladeTrail.length - 2];
     const p2 = gameState.bladeTrail[gameState.bladeTrail.length - 1];
 
@@ -275,7 +261,6 @@ function getBladeSegment() {
 }
 
 function lineCircleIntersection(p1, p2, circle) {
-    // Kiểm tra xem đoạn thẳng p1-p2 có cắt qua hình tròn không
     const dx = p2.x - p1.x;
     const dy = p2.y - p1.y;
     const fx = p1.x - circle.x;
@@ -295,7 +280,6 @@ function lineCircleIntersection(p1, p2, circle) {
     const t1 = (-b - discriminantSqrt) / (2 * a);
     const t2 = (-b + discriminantSqrt) / (2 * a);
 
-    // Kiểm tra xem giao điểm có nằm trên đoạn thẳng không
     if ((t1 >= 0 && t1 <= 1) || (t2 >= 0 && t2 <= 1)) {
         return true;
     }
@@ -309,19 +293,16 @@ function checkCollisions() {
 
     const { p1, p2 } = bladeSegment;
 
-    // Kiểm tra va chạm với từng GameObject
     for (let i = gameState.gameObjects.length - 1; i >= 0; i--) {
         const obj = gameState.gameObjects[i];
 
         if (lineCircleIntersection(p1, p2, obj)) {
             if (obj.type === 'fruit') {
-                // Chém trúng hoa quả
                 createParticles(obj.x, obj.y, obj.color);
                 gameState.score += FRUIT_POINTS;
                 console.log('Score +' + FRUIT_POINTS + ' - Total:', gameState.score);
                 gameState.gameObjects.splice(i, 1);
             } else if (obj.type === 'bomb') {
-                // Chém trúng bom
                 console.log('BOOM! Game Over!');
                 gameState.lives = 0;
                 gameState.isGameOver = true;
@@ -333,7 +314,7 @@ function checkCollisions() {
 
 // ==================== PARTICLE SYSTEM ====================
 function createParticles(x, y, color) {
-    const particleCount = 15 + Math.floor(Math.random() * 6); // 15-20 particles
+    const particleCount = 15 + Math.floor(Math.random() * 6);
 
     for (let i = 0; i < particleCount; i++) {
         gameState.particles.push(new Particle(x, y, color));
@@ -346,7 +327,6 @@ function drawBladeTrail() {
     const now = Date.now();
     const trailLifetime = 150; // milliseconds
     
-    // Remove old trail points and update life
     gameState.bladeTrail = gameState.bladeTrail.filter(point => {
         const age = now - point.timestamp;
         if (age > trailLifetime) {
@@ -356,7 +336,6 @@ function drawBladeTrail() {
         return true;
     });
     
-    // Draw trail
     if (gameState.bladeTrail.length > 1) {
         for (let i = 0; i < gameState.bladeTrail.length - 1; i++) {
             const point1 = gameState.bladeTrail[i];
@@ -397,13 +376,11 @@ function drawParticles() {
 function drawUI() {
     const ctx = gameState.ctx;
     
-    // Score (top left)
     ctx.fillStyle = '#ecf0f1';
     ctx.font = 'bold 32px Arial';
     ctx.textAlign = 'left';
     ctx.fillText('Score: ' + gameState.score, 20, 50);
     
-    // Lives (top right)
     ctx.textAlign = 'right';
     ctx.fillText('Lives: ' + gameState.lives, gameState.canvas.width - 20, 50);
 }
@@ -413,46 +390,36 @@ function drawGameOver() {
     const centerX = gameState.canvas.width / 2;
     const centerY = gameState.canvas.height / 2;
     
-    // Bóng đen (để dễ nhìn text)
     ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
     ctx.fillRect(0, 0, gameState.canvas.width, gameState.canvas.height);
     
-    // GAME OVER text
     ctx.font = 'bold 80px Arial';
     ctx.fillStyle = '#ff1744';
     ctx.textAlign = 'center';
     ctx.fillText('GAME OVER', centerX, centerY - 50);
     
-    // Final Score
     ctx.font = 'bold 40px Arial';
     ctx.fillStyle = '#ecf0f1';
     ctx.fillText('Final Score: ' + gameState.score, centerX, centerY + 40);
     
-    // Click to Restart
     ctx.font = 'bold 24px Arial';
     ctx.fillStyle = '#ffd600';
     ctx.fillText('Click to Restart', centerX, centerY + 100);
 }
 
-// ==================== GAME LOOP (60 FPS) ====================
+// ==================== GAME LOOP WITH DELTA TIME ====================
 function gameLoop() {
     const now = Date.now();
-    const deltaTime = now - gameState.lastFrameTime;
-
-    // Chỉ update nếu đủ thời gian cho frame tiếp theo
-    if (deltaTime < FRAME_TIME) {
-        requestAnimationFrame(gameLoop);
-        return;
-    }
-
-    gameState.lastFrameTime = now - (deltaTime % FRAME_TIME);
+    const deltaTime = (now - gameState.lastFrameTime) / 1000; // Convert to seconds
+    gameState.lastFrameTime = now;
 
     // Update (nếu game chưa kết thúc)
     if (!gameState.isGameOver) {
         spawnObjects();
         
+        // Update game objects với deltaTime
         for (const obj of gameState.gameObjects) {
-            obj.update();
+            obj.update(deltaTime);
         }
 
         // Kiểm tra fruit rơi qua mép dưới (miss)
@@ -471,9 +438,9 @@ function gameLoop() {
             }
         }
 
-        // Update particles
+        // Update particles với deltaTime
         for (let i = gameState.particles.length - 1; i >= 0; i--) {
-            gameState.particles[i].update();
+            gameState.particles[i].update(deltaTime);
             if (gameState.particles[i].isDead()) {
                 gameState.particles.splice(i, 1);
             }
