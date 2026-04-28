@@ -5,6 +5,7 @@ const FRUIT_SPAWN_CHANCE = 0.85; // 85% hoa quả, 15% bom
 const TARGET_FPS = 60;
 const FRAME_TIME = 1000 / TARGET_FPS; // ~16.67ms
 const FRUIT_COLORS = ['#ff6b35', '#ff1744', '#00e676', '#ffd600']; // orange, red, green, yellow
+const FRUIT_POINTS = 10;
 
 // ==================== GAME STATE ====================
 const gameState = {
@@ -18,7 +19,9 @@ const gameState = {
     lastY: 0,
     lastSpawnTime: 0,
     lastFrameTime: 0,
-    score: 0
+    score: 0,
+    lives: 3,
+    isGameOver: false
 };
 
 // ==================== GAME OBJECT CLASS ====================
@@ -31,6 +34,7 @@ class GameObject {
         this.velocityY = velocityY;
         this.color = color;
         this.type = type; // 'fruit' or 'bomb'
+        this.wasMissed = false; // Theo dõi nếu đã miss
     }
 
     update() {
@@ -128,12 +132,24 @@ function resizeCanvas() {
     gameState.canvas.height = window.innerHeight;
 }
 
+// ==================== RESET GAME ====================
+function resetGame() {
+    gameState.score = 0;
+    gameState.lives = 3;
+    gameState.isGameOver = false;
+    gameState.bladeTrail = [];
+    gameState.gameObjects = [];
+    gameState.particles = [];
+    gameState.lastSpawnTime = Date.now();
+}
+
 // ==================== EVENT LISTENERS ====================
 function setupEventListeners() {
     // Mouse events
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mousedown', handleMouseDown);
     window.addEventListener('mouseup', handleMouseUp);
+    window.addEventListener('click', handleClick);
     
     // Touch events (for mobile)
     window.addEventListener('touchstart', handleTouchStart);
@@ -145,13 +161,14 @@ function setupEventListeners() {
 }
 
 function handleMouseDown(e) {
+    if (gameState.isGameOver) return;
     gameState.isDrawing = true;
     gameState.lastX = e.clientX;
     gameState.lastY = e.clientY;
 }
 
 function handleMouseMove(e) {
-    if (gameState.isDrawing) {
+    if (gameState.isDrawing && !gameState.isGameOver) {
         addBladeTrailPoint(e.clientX, e.clientY);
     }
 }
@@ -160,8 +177,16 @@ function handleMouseUp(e) {
     gameState.isDrawing = false;
 }
 
+function handleClick(e) {
+    // Nếu game over, click để restart
+    if (gameState.isGameOver) {
+        resetGame();
+    }
+}
+
 // Touch handlers
 function handleTouchStart(e) {
+    if (gameState.isGameOver) return;
     if (e.touches.length > 0) {
         gameState.isDrawing = true;
         const touch = e.touches[0];
@@ -171,7 +196,7 @@ function handleTouchStart(e) {
 }
 
 function handleTouchMove(e) {
-    if (gameState.isDrawing && e.touches.length > 0) {
+    if (gameState.isDrawing && !gameState.isGameOver && e.touches.length > 0) {
         const touch = e.touches[0];
         addBladeTrailPoint(touch.clientX, touch.clientY);
     }
@@ -194,6 +219,8 @@ function addBladeTrailPoint(x, y) {
 
 // ==================== SPAWNER SYSTEM ====================
 function spawnObjects() {
+    if (gameState.isGameOver) return;
+    
     const now = Date.now();
     if (now - gameState.lastSpawnTime < SPAWN_INTERVAL) {
         return;
@@ -290,12 +317,14 @@ function checkCollisions() {
             if (obj.type === 'fruit') {
                 // Chém trúng hoa quả
                 createParticles(obj.x, obj.y, obj.color);
-                gameState.score++;
-                console.log('Score +1 - Total:', gameState.score);
+                gameState.score += FRUIT_POINTS;
+                console.log('Score +' + FRUIT_POINTS + ' - Total:', gameState.score);
                 gameState.gameObjects.splice(i, 1);
             } else if (obj.type === 'bomb') {
                 // Chém trúng bom
-                console.log('BOOM!');
+                console.log('BOOM! Game Over!');
+                gameState.lives = 0;
+                gameState.isGameOver = true;
                 gameState.gameObjects.splice(i, 1);
             }
         }
@@ -365,11 +394,44 @@ function drawParticles() {
     }
 }
 
-function drawScore() {
+function drawUI() {
     const ctx = gameState.ctx;
+    
+    // Score (top left)
     ctx.fillStyle = '#ecf0f1';
     ctx.font = 'bold 32px Arial';
+    ctx.textAlign = 'left';
     ctx.fillText('Score: ' + gameState.score, 20, 50);
+    
+    // Lives (top right)
+    ctx.textAlign = 'right';
+    ctx.fillText('Lives: ' + gameState.lives, gameState.canvas.width - 20, 50);
+}
+
+function drawGameOver() {
+    const ctx = gameState.ctx;
+    const centerX = gameState.canvas.width / 2;
+    const centerY = gameState.canvas.height / 2;
+    
+    // Bóng đen (để dễ nhìn text)
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+    ctx.fillRect(0, 0, gameState.canvas.width, gameState.canvas.height);
+    
+    // GAME OVER text
+    ctx.font = 'bold 80px Arial';
+    ctx.fillStyle = '#ff1744';
+    ctx.textAlign = 'center';
+    ctx.fillText('GAME OVER', centerX, centerY - 50);
+    
+    // Final Score
+    ctx.font = 'bold 40px Arial';
+    ctx.fillStyle = '#ecf0f1';
+    ctx.fillText('Final Score: ' + gameState.score, centerX, centerY + 40);
+    
+    // Click to Restart
+    ctx.font = 'bold 24px Arial';
+    ctx.fillStyle = '#ffd600';
+    ctx.fillText('Click to Restart', centerX, centerY + 100);
 }
 
 // ==================== GAME LOOP (60 FPS) ====================
@@ -385,37 +447,54 @@ function gameLoop() {
 
     gameState.lastFrameTime = now - (deltaTime % FRAME_TIME);
 
-    // Update
-    spawnObjects();
-    
-    for (const obj of gameState.gameObjects) {
-        obj.update();
-    }
-
-    // Xóa object rơi qua mép dưới
-    gameState.gameObjects = gameState.gameObjects.filter(
-        obj => !obj.isOutOfBounds(gameState.canvas.height)
-    );
-
-    // Update particles
-    for (let i = gameState.particles.length - 1; i >= 0; i--) {
-        gameState.particles[i].update();
-        if (gameState.particles[i].isDead()) {
-            gameState.particles.splice(i, 1);
+    // Update (nếu game chưa kết thúc)
+    if (!gameState.isGameOver) {
+        spawnObjects();
+        
+        for (const obj of gameState.gameObjects) {
+            obj.update();
         }
-    }
 
-    // Collision detection
-    checkCollisions();
+        // Kiểm tra fruit rơi qua mép dưới (miss)
+        for (let i = gameState.gameObjects.length - 1; i >= 0; i--) {
+            const obj = gameState.gameObjects[i];
+            if (obj.isOutOfBounds(gameState.canvas.height) && !obj.wasMissed) {
+                obj.wasMissed = true;
+                if (obj.type === 'fruit') {
+                    gameState.lives--;
+                    console.log('Miss! Lives: ' + gameState.lives);
+                    if (gameState.lives <= 0) {
+                        gameState.isGameOver = true;
+                    }
+                }
+                gameState.gameObjects.splice(i, 1);
+            }
+        }
+
+        // Update particles
+        for (let i = gameState.particles.length - 1; i >= 0; i--) {
+            gameState.particles[i].update();
+            if (gameState.particles[i].isDead()) {
+                gameState.particles.splice(i, 1);
+            }
+        }
+
+        // Collision detection
+        checkCollisions();
+    }
 
     // Draw
     const ctx = gameState.ctx;
     ctx.clearRect(0, 0, gameState.canvas.width, gameState.canvas.height);
 
-    drawGameObjects();
-    drawParticles();
-    drawBladeTrail();
-    drawScore();
+    if (!gameState.isGameOver) {
+        drawGameObjects();
+        drawParticles();
+        drawBladeTrail();
+        drawUI();
+    } else {
+        drawGameOver();
+    }
 
     requestAnimationFrame(gameLoop);
 }
