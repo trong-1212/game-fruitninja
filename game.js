@@ -9,26 +9,122 @@ const FRUIT_POINTS = 10;
 const FRUIT_EMOJIS = ['🍊', '🍎', '🍉', '🍌'];
 const BOMB_EMOJI = '💣';
 
+// ==================== SOUND MANAGER ====================
+class SoundManager {
+    constructor() {
+        this.isMuted = false;
+        this.lastSwooshTime = 0;
+        this.swooshCooldown = 100; // ms
+        this.audioContext = null;
+        
+        try {
+            this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        } catch (e) {
+            console.log('AudioContext not supported');
+        }
+    }
+
+    playSwoosh() {
+        if (this.isMuted || !this.audioContext) return;
+        
+        const now = Date.now();
+        if (now - this.lastSwooshTime < this.swooshCooldown) return;
+        this.lastSwooshTime = now;
+
+        try {
+            const audioContext = this.audioContext;
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+
+            oscillator.frequency.setValueAtTime(200, audioContext.currentTime);
+            oscillator.frequency.exponentialRampToValueAtTime(100, audioContext.currentTime + 0.1);
+
+            gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
+
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + 0.1);
+        } catch (e) {
+            console.log('Swoosh error:', e);
+        }
+    }
+
+    playSplatter() {
+        if (this.isMuted || !this.audioContext) return;
+
+        try {
+            const audioContext = this.audioContext;
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+
+            oscillator.type = 'square';
+            oscillator.frequency.setValueAtTime(400, audioContext.currentTime);
+            oscillator.frequency.exponentialRampToValueAtTime(100, audioContext.currentTime + 0.15);
+
+            gainNode.gain.setValueAtTime(0.2, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.15);
+
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + 0.15);
+        } catch (e) {
+            console.log('Splatter error:', e);
+        }
+    }
+
+    playExplosion() {
+        if (this.isMuted || !this.audioContext) return;
+
+        try {
+            const audioContext = this.audioContext;
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+
+            oscillator.type = 'sawtooth';
+            oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
+            oscillator.frequency.exponentialRampToValueAtTime(100, audioContext.currentTime + 0.5);
+
+            gainNode.gain.setValueAtTime(0.4, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + 0.5);
+        } catch (e) {
+            console.log('Explosion error:', e);
+        }
+    }
+
+    toggleMute() {
+        this.isMuted = !this.isMuted;
+        return this.isMuted;
+    }
+}
+
+const soundManager = new SoundManager();
+
 // ==================== ASSET MANAGER ====================
 class AssetManager {
     constructor() {
         this.assets = {};
-        this.fontSize = 60; // Kích thước emoji
     }
 
     loadEmoji(name, emoji) {
         this.assets[name] = emoji;
     }
 
-    getEmoji(name) {
-        return this.assets[name] || '⭕';
-    }
-
     drawEmoji(ctx, emoji, x, y, size = 60, rotation = 0) {
         ctx.save();
         ctx.translate(x, y);
         ctx.rotate(rotation);
-        ctx.font = `${size}px Arial`;
+        ctx.font = size + 'px Arial';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(emoji, 0, 0);
@@ -40,7 +136,7 @@ const assetManager = new AssetManager();
 
 // Load emojis
 FRUIT_EMOJIS.forEach((emoji, i) => {
-    assetManager.loadEmoji(`fruit${i}`, emoji);
+    assetManager.loadEmoji('fruit' + i, emoji);
 });
 assetManager.loadEmoji('bomb', BOMB_EMOJI);
 
@@ -51,7 +147,7 @@ const gameState = {
     bladeTrail: [],
     gameObjects: [],
     particles: [],
-    fruitPieces: [], // Nửa hoa quả
+    fruitPieces: [],
     isDrawing: false,
     lastX: 0,
     lastY: 0,
@@ -59,7 +155,8 @@ const gameState = {
     lastFrameTime: 0,
     score: 0,
     lives: 3,
-    isGameOver: false
+    isGameOver: false,
+    isSoundOn: true
 };
 
 // ==================== FRUIT PIECE CLASS ====================
@@ -70,11 +167,11 @@ class FruitPiece {
         this.velocityX = velocityX;
         this.velocityY = velocityY;
         this.emoji = emoji;
-        this.side = side; // 'left' hoặc 'right'
+        this.side = side;
         this.rotation = Math.random() * Math.PI * 2;
-        this.rotationSpeed = (Math.random() - 0.5) * 10; // rad/s
+        this.rotationSpeed = (Math.random() - 0.5) * 10;
         this.alpha = 1;
-        this.lifetime = 1; // seconds
+        this.lifetime = 1;
         this.createdAt = Date.now();
         this.scale = 0.7;
     }
@@ -106,25 +203,20 @@ class GameObject {
         this.x = x;
         this.y = y;
         this.radius = radius;
-        this.velocityX = velocityX; // pixels per second
-        this.velocityY = velocityY; // pixels per second
+        this.velocityX = velocityX;
+        this.velocityY = velocityY;
         this.color = color;
         this.emoji = emoji;
-        this.type = type; // 'fruit' or 'bomb'
+        this.type = type;
         this.wasMissed = false;
         this.rotation = 0;
-        this.rotationSpeed = (Math.random() - 0.5) * 5; // rad/s
+        this.rotationSpeed = (Math.random() - 0.5) * 5;
     }
 
     update(deltaTime) {
-        // Áp dụng gravity (deltaTime tính bằng giây)
         this.velocityY += GRAVITY * deltaTime;
-        
-        // Cập nhật vị trí dựa trên deltaTime
         this.x += this.velocityX * deltaTime;
         this.y += this.velocityY * deltaTime;
-
-        // Xoay vật thể
         this.rotation += this.rotationSpeed * deltaTime;
     }
 
@@ -132,8 +224,8 @@ class GameObject {
         assetManager.drawEmoji(ctx, this.emoji, this.x, this.y, 60, this.rotation);
     }
 
-    isOutOfBounds(canvasHeight) {
-        return this.y > canvasHeight + 50;
+    isOutOfBounds(canvasWidth, canvasHeight) {
+        return this.y > canvasHeight + 50 || this.x < -50 || this.x > canvasWidth + 50;
     }
 }
 
@@ -146,18 +238,17 @@ class Particle {
         this.radius = 3 + Math.random() * 4;
         
         const angle = Math.random() * Math.PI * 2;
-        const speed = 200 + Math.random() * 300; // pixels per second
+        const speed = 200 + Math.random() * 300;
         this.velocityX = Math.cos(angle) * speed;
         this.velocityY = Math.sin(angle) * speed;
         
         this.alpha = 1;
-        this.lifetime = 0.6; // seconds
+        this.lifetime = 0.6;
         this.createdAt = Date.now();
     }
 
     update(deltaTime) {
         this.velocityY += GRAVITY * 0.3 * deltaTime;
-        
         this.x += this.velocityX * deltaTime;
         this.y += this.velocityY * deltaTime;
         
@@ -233,6 +324,17 @@ function handleMouseDown(e) {
 function handleMouseMove(e) {
     if (gameState.isDrawing && !gameState.isGameOver) {
         addBladeTrailPoint(e.clientX, e.clientY);
+        
+        const dx = e.clientX - gameState.lastX;
+        const dy = e.clientY - gameState.lastY;
+        const speed = Math.sqrt(dx * dx + dy * dy);
+        
+        if (speed > 5) {
+            soundManager.playSwoosh();
+        }
+        
+        gameState.lastX = e.clientX;
+        gameState.lastY = e.clientY;
     }
 }
 
@@ -260,11 +362,26 @@ function handleTouchMove(e) {
     if (gameState.isDrawing && !gameState.isGameOver && e.touches.length > 0) {
         const touch = e.touches[0];
         addBladeTrailPoint(touch.clientX, touch.clientY);
+        
+        const dx = touch.clientX - gameState.lastX;
+        const dy = touch.clientY - gameState.lastY;
+        const speed = Math.sqrt(dx * dx + dy * dy);
+        
+        if (speed > 5) {
+            soundManager.playSwoosh();
+        }
+        
+        gameState.lastX = touch.clientX;
+        gameState.lastY = touch.clientY;
     }
 }
 
 function handleTouchEnd(e) {
     gameState.isDrawing = false;
+}
+
+function toggleMute() {
+    gameState.isSoundOn = !soundManager.toggleMute();
 }
 
 // ==================== BLADE TRAIL SYSTEM ====================
@@ -294,13 +411,36 @@ function spawnObjects() {
     for (let i = 0; i < count; i++) {
         const isFruit = Math.random() < FRUIT_SPAWN_CHANCE;
         
-        const x = Math.random() * gameState.canvas.width;
-        const y = gameState.canvas.height;
+        // Spawn từ 3 cạnh: trái, phải, dưới - hướng về giữa màn hình
+        const spawnSide = Math.floor(Math.random() * 3);
+        let x, y;
+        
+        if (spawnSide === 0) {
+            x = -30;
+            y = Math.random() * (gameState.canvas.height * 0.6) + gameState.canvas.height * 0.1;
+        } else if (spawnSide === 1) {
+            x = gameState.canvas.width + 30;
+            y = Math.random() * (gameState.canvas.height * 0.6) + gameState.canvas.height * 0.1;
+        } else {
+            x = Math.random() * gameState.canvas.width;
+            y = gameState.canvas.height + 30;
+        }
+        
         const radius = 15 + Math.random() * 10;
         
-        // Vận tốc ban đầu (pixels per second) - FIX: velocityY phải âm (bay lên)
-        const velocityX = (Math.random() - 0.5) * 400; // -200 to 200
-        const velocityY = -(500 + Math.random() * 300); // -500 to -800 (âm = bay lên)
+        // Velocity hướng về giữa màn hình
+        const centerX = gameState.canvas.width / 2;
+        const centerY = gameState.canvas.height / 2;
+        
+        const dx = centerX - x;
+        const dy = centerY - y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        const normalizedDx = dx / distance;
+        const normalizedDy = dy / distance;
+        
+        const speed = 300 + Math.random() * 200;
+        const velocityX = normalizedDx * speed;
+        const velocityY = normalizedDy * speed - (200 + Math.random() * 200);
         
         let emoji;
         let type;
@@ -362,7 +502,8 @@ function checkCollisions() {
     const bladeSegment = getBladeSegment();
     if (!bladeSegment) return;
 
-    const { p1, p2 } = bladeSegment;
+    const p1 = bladeSegment.p1;
+    const p2 = bladeSegment.p2;
 
     for (let i = gameState.gameObjects.length - 1; i >= 0; i--) {
         const obj = gameState.gameObjects[i];
@@ -372,10 +513,12 @@ function checkCollisions() {
                 createParticles(obj.x, obj.y, obj.color);
                 createFruitPieces(obj.x, obj.y, obj.velocityX, obj.velocityY, obj.emoji);
                 gameState.score += FRUIT_POINTS;
+                soundManager.playSplatter();
                 console.log('Score +' + FRUIT_POINTS + ' - Total:', gameState.score);
                 gameState.gameObjects.splice(i, 1);
             } else if (obj.type === 'bomb') {
                 console.log('BOOM! Game Over!');
+                soundManager.playExplosion();
                 gameState.lives = 0;
                 gameState.isGameOver = true;
                 gameState.gameObjects.splice(i, 1);
@@ -386,22 +529,20 @@ function checkCollisions() {
 
 // ==================== FRUIT PIECES ====================
 function createFruitPieces(x, y, baseVelX, baseVelY, emoji) {
-    // Nửa trái - bay sang trái
     const leftPiece = new FruitPiece(
         x - 10,
         y,
-        baseVelX - 200, // bay sang trái
+        baseVelX - 200,
         baseVelY,
         emoji,
         'left'
     );
     gameState.fruitPieces.push(leftPiece);
 
-    // Nửa phải - bay sang phải
     const rightPiece = new FruitPiece(
         x + 10,
         y,
-        baseVelX + 200, // bay sang phải
+        baseVelX + 200,
         baseVelY,
         emoji,
         'right'
@@ -422,7 +563,7 @@ function createParticles(x, y, color) {
 function drawBladeTrail() {
     const ctx = gameState.ctx;
     const now = Date.now();
-    const trailLifetime = 150; // milliseconds
+    const trailLifetime = 150;
     
     gameState.bladeTrail = gameState.bladeTrail.filter(point => {
         const age = now - point.timestamp;
@@ -441,7 +582,7 @@ function drawBladeTrail() {
             const avgLife = (point1.life + point2.life) / 2;
             const lineWidth = 25 * avgLife + 2;
             
-            ctx.strokeStyle = `rgba(236, 240, 241, ${0.8 * avgLife})`;
+            ctx.strokeStyle = 'rgba(236, 240, 241, ' + (0.8 * avgLife) + ')';
             ctx.lineWidth = lineWidth;
             ctx.lineCap = 'round';
             ctx.lineJoin = 'round';
@@ -457,24 +598,24 @@ function drawBladeTrail() {
 function drawGameObjects() {
     const ctx = gameState.ctx;
 
-    for (const obj of gameState.gameObjects) {
-        obj.draw(ctx);
+    for (let i = 0; i < gameState.gameObjects.length; i++) {
+        gameState.gameObjects[i].draw(ctx);
     }
 }
 
 function drawFruitPieces() {
     const ctx = gameState.ctx;
 
-    for (const piece of gameState.fruitPieces) {
-        piece.draw(ctx);
+    for (let i = 0; i < gameState.fruitPieces.length; i++) {
+        gameState.fruitPieces[i].draw(ctx);
     }
 }
 
 function drawParticles() {
     const ctx = gameState.ctx;
 
-    for (const particle of gameState.particles) {
-        particle.draw(ctx);
+    for (let i = 0; i < gameState.particles.length; i++) {
+        gameState.particles[i].draw(ctx);
     }
 }
 
@@ -488,6 +629,12 @@ function drawUI() {
     
     ctx.textAlign = 'right';
     ctx.fillText('Lives: ' + gameState.lives, gameState.canvas.width - 20, 50);
+    
+    // Mute button emoji
+    const muteText = gameState.isSoundOn ? '🔊' : '🔇';
+    ctx.font = 'bold 32px Arial';
+    ctx.textAlign = 'right';
+    ctx.fillText(muteText, gameState.canvas.width - 20, 100);
 }
 
 function drawGameOver() {
@@ -515,22 +662,19 @@ function drawGameOver() {
 // ==================== GAME LOOP WITH DELTA TIME ====================
 function gameLoop() {
     const now = Date.now();
-    const deltaTime = (now - gameState.lastFrameTime) / 1000; // Convert to seconds
+    const deltaTime = (now - gameState.lastFrameTime) / 1000;
     gameState.lastFrameTime = now;
 
-    // Update (nếu game chưa kết thúc)
     if (!gameState.isGameOver) {
         spawnObjects();
         
-        // Update game objects với deltaTime
-        for (const obj of gameState.gameObjects) {
-            obj.update(deltaTime);
+        for (let i = 0; i < gameState.gameObjects.length; i++) {
+            gameState.gameObjects[i].update(deltaTime);
         }
 
-        // Kiểm tra fruit rơi qua mép dưới (miss)
         for (let i = gameState.gameObjects.length - 1; i >= 0; i--) {
             const obj = gameState.gameObjects[i];
-            if (obj.isOutOfBounds(gameState.canvas.height) && !obj.wasMissed) {
+            if (obj.isOutOfBounds(gameState.canvas.width, gameState.canvas.height) && !obj.wasMissed) {
                 obj.wasMissed = true;
                 if (obj.type === 'fruit') {
                     gameState.lives--;
@@ -543,7 +687,6 @@ function gameLoop() {
             }
         }
 
-        // Update fruit pieces
         for (let i = gameState.fruitPieces.length - 1; i >= 0; i--) {
             gameState.fruitPieces[i].update(deltaTime);
             if (gameState.fruitPieces[i].isDead()) {
@@ -551,7 +694,6 @@ function gameLoop() {
             }
         }
 
-        // Update particles với deltaTime
         for (let i = gameState.particles.length - 1; i >= 0; i--) {
             gameState.particles[i].update(deltaTime);
             if (gameState.particles[i].isDead()) {
@@ -559,11 +701,9 @@ function gameLoop() {
             }
         }
 
-        // Collision detection
         checkCollisions();
     }
 
-    // Draw
     const ctx = gameState.ctx;
     ctx.clearRect(0, 0, gameState.canvas.width, gameState.canvas.height);
 
